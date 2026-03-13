@@ -1,0 +1,39 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: riverwood-voice-agent:latest
+    container_name: riverwood-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # Allow browser requests from the local Next.js app by default.
+      # Override in .env with CORS_ORIGINS for deployed domains.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      VAPI_PUBLIC_API_KEY: ${VAPI_PUBLIC_API_KEY:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      # NEXT_PUBLIC_* vars are baked into the JS bundle at build time.
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-http://localhost:8000}
+    image: riverwood-frontend:latest
+    container_name: riverwood-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

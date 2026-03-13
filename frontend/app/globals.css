@@ -1,0 +1,68 @@
+@import "tailwindcss";
+@import "lenis/dist/lenis.css";
+
+@theme inline {
+  /* Design tokens */
+  --color-forest:       #1A3021;
+  --color-forest-mid:   #2a4d35;
+  --color-forest-dark:  #111f16;
+  --color-bone:         #F9F7F2;
+  --color-bone-dark:    #ede9e2;
+  --color-gold:         #C5A059;
+  --color-gold-light:   #d4b478;
+
+  /* Typography */
+  --font-serif: var(--font-playfair);
+  --font-sans:  var(--font-inter);
+}
+
+:root {
+  --background: #F9F7F2;
+  --foreground: #1A3021;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: auto; /* Lenis handles this */
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Grain texture overlay */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+
+/* Clip reveal helper for GSAP */
+.overflow-clip {
+  overflow: clip;
+}
+
+@keyframes pulse-gold {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(197, 160, 89, 0.4); }
+  50%       { box-shadow: 0 0 0 12px rgba(197, 160, 89, 0); }
+}
+
+@keyframes pulse-green {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.6; }
+}
