@@ -1,72 +1,65 @@
 # Riverwood Voice Agent
 
-Outbound AI calling backend for Riverwood Projects. Triggers and schedules personalised voice calls via [Vapi.ai](https://vapi.ai), logs end-of-call transcripts through a webhook, and runs as a single containerised service.
+This is an MVP AI voice calling system for Riverwood Projects.
+
+It lets you:
+
+1. Trigger immediate or scheduled outbound calls from the backend.
+2. Start a live browser web call from the frontend.
+3. Capture call outcomes through webhook logs.
 
 ---
 
-## How It Works
+## Architecture
 
-```
-Your Frontend / curl
-        │
-        │  POST /api/calls/trigger
-        ▼
-┌───────────────────────────────┐
-│         FastAPI (async)       │
-│                               │
-│  delay_minutes = null?        │
-│  ├─ YES → Vapi API (now)      │
-│  └─ NO  → APScheduler ──────┐ │
-└───────────────────────────┬──┘ │
-                            │    │
-                   fires at │    │  POST /call/phone
-                   run_date │    ▼
-                            │  Vapi.ai
-                            │    │
-                            │    │  dials
-                            │    ▼
-                            │  Customer Phone (+91XXXXXXXXXX)
-                            │
-                   POST /api/webhook/vapi (end-of-call report)
-                            │
-                            ▼
-                     Python logger (transcript + summary)
-```
+This is the high-level flow used in this project.
 
-**Request path latency budget:** FastAPI async handler → single shared `httpx.AsyncClient` (no per-request TCP handshake) → Vapi with GPT-4o-mini + ElevenLabs Turbo v2.5 → TTFT ~390ms.
-
-### Mermaid Architecture (For Loom)
+### Mermaid Diagram
 
 ```mermaid
-flowchart LR
-  U[Customer / User] -->|Web call| FE[Next.js Frontend]
-  FE -->|GET /api/frontend/call-config| API[FastAPI Backend]
-  FE -->|Browser Web SDK| VAPI[Vapi Platform]
+flowchart TB
+    FE[Frontend\nNext.js Web UI] -->|Load safe runtime config| API[Backend\nFastAPI]
+    FE -->|Start web voice call| VAPI[Vapi Voice Platform]
+    API -->|Trigger immediate or scheduled phone call| VAPI
+    SCH[APScheduler\nJob Scheduler] -->|Runs delayed calls| API
+    VAPI -->|Calls customer| USER[Customer]
+    VAPI -->|End of call webhook| API
+    API -->|Writes logs and call artifacts| LOGS[Backend Logs]
 
-  O[Ops/User Trigger] -->|POST /api/calls/trigger| API
-  API -->|Immediate call| VAPI
-  API -->|Scheduled job| SCH[APScheduler]
-  SCH -->|Run at time| VAPI
+    classDef frontend fill:#EAF8F0,stroke:#1A7F4B,stroke-width:2px,color:#0C3D23;
+    classDef backend fill:#EAF1FF,stroke:#2D5BBA,stroke-width:2px,color:#17336B;
+    classDef vapi fill:#FFF3E8,stroke:#C45A00,stroke-width:2px,color:#6B2D00;
+    classDef infra fill:#F5F0FF,stroke:#6B4BC3,stroke-width:2px,color:#3B237A;
+    classDef user fill:#FFFBE8,stroke:#B38B00,stroke-width:2px,color:#5A4300;
+    classDef logs fill:#F2F2F2,stroke:#666666,stroke-width:2px,color:#2E2E2E;
 
-  VAPI -->|Outbound voice call| P[Customer Phone]
-  VAPI -->|POST /api/webhook/vapi| API
-  API -->|Transcript + summary logs| LOGS[App Logs]
+    class FE frontend;
+    class API backend;
+    class VAPI vapi;
+    class SCH infra;
+    class USER user;
+    class LOGS logs;
 ```
+
+Simple story:
+
+1. Frontend asks backend for safe call config.
+2. Calls can start from frontend web call or backend trigger API.
+3. Vapi handles the live voice conversation.
+4. Vapi sends final call data back to backend webhook.
+5. Backend logs transcript and summary artifacts.
 
 ---
 
-## Stack
+## Tech Stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Runtime | Python 3.12 | Latest stable, pattern matching, native `X \| Y` types |
-| Framework | FastAPI | Async-first, auto OpenAPI docs, lifespan hooks |
-| HTTP Client | httpx (async) | Shared connection pool, eliminates per-call TCP overhead |
-| Scheduler | APScheduler 3.x `AsyncIOScheduler` | In-process, zero infra — right-sized for an MVP |
-| Config | pydantic-settings | Fails loudly on missing env vars at startup, not at call time |
-| Packaging | uv | 10–100× faster than pip, deterministic lockfile |
-| Container | Docker multi-stage | Builder (uv) → slim runtime, no build tools in prod image |
-| Voice AI | Vapi + ElevenLabs Turbo v2.5 + GPT-4o-mini | Low-latency outbound calls with dynamic first message |
+| Backend | FastAPI on Python 3.12 | Clean async APIs and easy docs |
+| Scheduler | APScheduler | Simple delayed-call support for MVP |
+| Frontend | Next.js | Thin UI layer for web call demo |
+| Voice Platform | Vapi + ElevenLabs + GPT-4o-mini | Good realism and low latency |
+| Infra | Docker Compose | Easy local setup and demo |
 
 ---
 
@@ -87,9 +80,9 @@ src/
 
 ---
 
-## Setup
+## Local Setup
 
-**Prerequisites:** [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker
+Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/) and Docker
 
 ### 1. Environment
 
@@ -106,14 +99,14 @@ cp .env.example .env
 
 > **Note:** Free Vapi numbers only support US/Canada (`+1`). To call international numbers, import a Twilio number via Vapi dashboard → Phone Numbers → Import.
 
-### 2. Run locally
+### 2. Run Backend Locally
 
 ```bash
 make install   # uv sync — installs deps, creates .venv
 make dev       # uvicorn with --reload on :8000
 ```
 
-### 3. Run with Docker
+### 3. Run With Docker
 
 ```bash
 make up        # builds image + starts container detached
@@ -123,9 +116,9 @@ make down      # stop and remove
 
 ---
 
-## API
+## API Endpoints
 
-Interactive docs at `http://localhost:8000/docs`
+Interactive docs: http://localhost:8000/docs
 
 ### `POST /api/calls/trigger`
 
@@ -155,12 +148,11 @@ Triggers an immediate or scheduled outbound call.
 504 — Vapi request timed out
 ```
 
-The AI greets the customer with:
-> *"Hi {customer_name}! This is the AI customer success team at Riverwood Projects. Am I speaking with the plot owner?"*
+The backend injects a personalized first message using customer_name.
 
 ---
 
-### `POST /api/webhook/vapi`
+### POST /api/webhook/vapi
 
 Point **Server URL** in your Vapi dashboard to `https://<your-domain>/api/webhook/vapi`. Vapi POSTs the end-of-call report here. The handler extracts and logs the transcript and AI-generated summary.
 
@@ -170,7 +162,7 @@ Point **Server URL** in your Vapi dashboard to `https://<your-domain>/api/webhoo
 
 ---
 
-### `GET /api/frontend/call-config`
+### GET /api/frontend/call-config
 
 Returns browser-safe runtime configuration for web calls.
 
@@ -186,7 +178,7 @@ If `VAPI_PUBLIC_API_KEY` is missing (or still a placeholder), `web_call_enabled`
 
 ---
 
-### `GET /health`
+### GET /health
 
 ```
 200 — { "status": "ok" }
@@ -196,7 +188,7 @@ Used by the Docker healthcheck and any uptime monitor.
 
 ---
 
-## Make Targets
+## Make Commands
 
 ```
 make install      uv sync (install/update deps)
@@ -210,64 +202,25 @@ make logs         tail container logs
 
 ---
 
-## Loom Script (3-4 Minutes)
+## Cost Estimate (1000 Calls)
 
-Use this exact flow while recording:
+Using a dashboard estimate of around $0.11 per minute:
 
-1. Intro (20s):
-"This is my Riverwood AI Voice Agent MVP for the internship challenge. It handles outbound customer updates with a warm bilingual conversation flow, low latency, and structured call outcomes."
+1. 1000 calls x 1.5 min average length = 1500 minutes
+2. 1500 x $0.11 = about $165
 
-2. Architecture (45s):
-Open this README and show the Mermaid diagram.
-Explain:
-- FastAPI is the backend control layer.
-- Next.js is a thin UI layer for web calls.
-- Vapi handles voice pipeline and model orchestration.
-- Webhook returns end-of-call artifacts for transcript/summary logging.
-
-3. Dashboard settings (45s):
-Show your Vapi prompt/settings and explain:
-- short 1-2 sentence responses for latency,
-- bilingual behavior (English + Hindi),
-- no fake follow-up promises unless tools are enabled.
-
-4. Live demo (60-90s):
-- Trigger one call flow.
-- Show greeting, project update, visit-intent question, and polite call close.
-- Show where transcript/summary or call log appears.
-
-5. Scale answer (30s):
-"For 1000 daily calls, I would use batched queue-based triggering, horizontal workers, and rate-limited phone-number pools with retry policies and observability metrics."
-
-6. Close (10s):
-"This MVP is intentionally simple: strong voice realism, low latency, and structured outputs over overengineering."
-
----
-
-## Submission Checklist
-
-1. Loom video link recorded and accessible.
-2. Demo/code link ready (GitHub repo).
-3. Short technical note included (architecture + scale design).
-4. Estimated cost per 1000 calls included.
-
-Suggested cost line for submission note:
-
-Given dashboard estimate `~$0.11/min`, projected daily voice cost is:
-
-- 1000 calls × avg 1.5 min ≈ 1500 min/day
-- 1500 × $0.11 ≈ `$165/day` voice runtime cost (before infra overhead)
+Estimated runtime voice cost: about $165 per 1000 calls (before extra infra/platform overhead).
 
 ---
 
 ## Scaling Beyond MVP
 
-The current design is intentionally minimal — APScheduler in-process, no DB, structured logging instead of a data store. Here's how each constraint lifts as load grows:
+This project is intentionally simple for MVP speed. To handle large daily campaigns, evolve it in small steps:
 
-| Concern | MVP | At scale (1 000 concurrent calls) |
-|---|---|---|
-| Scheduler | APScheduler in-memory | Replace with Celery + Redis or AWS SQS worker pool |
-| Call state | Python logger | Append-only Postgres table or DynamoDB |
-| Horizontal scale | Single container | Auto-scaling ECS/Fargate tasks behind an ALB |
-| Concurrency cap | Vapi account limit | Multiple Twilio numbers, round-robin via `phoneNumberId` |
-| Observability | `logging` module | OpenTelemetry → Grafana / Datadog |
+1. Move call requests into a queue so jobs are processed smoothly.
+2. Run multiple worker instances to handle higher traffic.
+3. Store call outcomes in a database instead of logs only.
+4. Add retry rules, rate limiting, and health dashboards.
+5. Use multiple phone channels to increase outbound throughput.
+
+In short: keep the same architecture style, but swap in queue + workers + durable storage for scale.
